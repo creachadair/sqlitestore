@@ -9,11 +9,22 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"strings"
 
 	"crawshaw.io/sqlite"
 	"crawshaw.io/sqlite/sqlitex"
 	"github.com/creachadair/ffs/blob"
 )
+
+// Opener constructs a sqlitestore from a SQLite URI, for use with the store
+// package. To specify the table name, prefix addr with "tablename@".
+func Opener(_ context.Context, addr string) (blob.Store, error) {
+	var tableName string
+	if i := strings.Index(addr, "@"); i > 0 {
+		tableName, addr = addr[:i], addr[i+1:]
+	}
+	return New(addr, &Options{Table: tableName})
+}
 
 // A Store implements the blob.Store interface using a SQLite3 database.
 type Store struct {
