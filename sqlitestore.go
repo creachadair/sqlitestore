@@ -14,6 +14,7 @@ import (
 	"crawshaw.io/sqlite"
 	"crawshaw.io/sqlite/sqlitex"
 	"github.com/creachadair/ffs/blob"
+	"github.com/golang/snappy"
 )
 
 // Opener constructs a sqlitestore from a SQLite URI, for use with the store
@@ -30,6 +31,7 @@ func Opener(_ context.Context, addr string) (blob.Store, error) {
 type Store struct {
 	pool      *sqlitex.Pool
 	tableName string
+	compress  bool
 
 	// Pre-defined queries.
 	getStmt     string // params: key
@@ -55,6 +57,7 @@ func New(uri string, opts *Options) (*Store, error) {
 
 	const createStmt = `CREATE TABLE IF NOT EXISTS %s (
    key BLOB UNIQUE NOT NULL,
+   size INT,
    value BLOB NOT NULL
 );`
 	stmt, _, err := conn.PrepareTransient(fmt.Sprintf(createStmt, tableName))
@@ -69,10 +72,11 @@ func New(uri string, opts *Options) (*Store, error) {
 	return &Store{
 		pool:        pool,
 		tableName:   tableName,
+		compress:    opts == nil || !opts.Uncompressed,
 		getStmt:     fmt.Sprintf(`SELECT value FROM %s WHERE key = $key;`, tableName),
-		putStmtRep:  fmt.Sprintf(`REPLACE into %s (key, value) VALUES ($key, $value);`, tableName),
-		putStmtNRep: fmt.Sprintf(`INSERT into %s (key, value) VALUES ($key, $value);`, tableName),
-		sizeStmt:    fmt.Sprintf(`SELECT length(value) AS size FROM %s WHERE key = $key;`, tableName),
+		putStmtRep:  fmt.Sprintf(`REPLACE into %s (key, size, value) VALUES ($key, $size, $value);`, tableName),
+		putStmtNRep: fmt.Sprintf(`INSERT into %s (key, size, value) VALUES ($key, $size, $value);`, tableName),
+		sizeStmt:    fmt.Sprintf(`SELECT size FROM %s WHERE key = $key;`, tableName),
 		deleteStmt:  fmt.Sprintf(`DELETE FROM %s WHERE key = $key;`, tableName),
 		listStmt:    fmt.Sprintf(`SELECT key FROM %s WHERE key >= $start ORDER BY key;`, tableName),
 		lenStmt:     fmt.Sprintf(`SELECT count(*) AS len FROM %s;`, tableName),
@@ -90,6 +94,10 @@ type Options struct {
 
 	// The name of the table to use for blob data.  If unset, use "blobs".
 	Table string
+
+	// If true, store blobs without compression; by default blob data are
+	// compressed with Snappy.
+	Uncompressed bool
 }
 
 func (o *Options) poolSize() int {
@@ -123,6 +131,20 @@ func decodeKey(ekey []byte) string {
 	return string(ekey[:n])
 }
 
+func (s *Store) encodeBlob(data []byte) []byte {
+	if s.compress {
+		return snappy.Encode(nil, data)
+	}
+	return data
+}
+
+func (s *Store) decodeBlob(data []byte) ([]byte, error) {
+	if s.compress {
+		return snappy.Decode(nil, data)
+	}
+	return data, nil
+}
+
 // Close implements blob.Closer.
 func (s *Store) Close(context.Context) error { return s.pool.Close() }
 
@@ -146,7 +168,7 @@ func (s *Store) Get(ctx context.Context, key string) ([]byte, error) {
 	}
 	data := make([]byte, stmt.GetLen("value"))
 	stmt.GetBytes("value", data)
-	return data, nil
+	return s.decodeBlob(data)
 }
 
 // Put implements part of blob.Store.
@@ -166,8 +188,10 @@ func (s *Store) Put(ctx context.Context, opts blob.PutOptions) (err error) {
 	}
 	defer stmt.Reset()
 
+	enc := s.encodeBlob(opts.Data)
 	stmt.SetText("$key", encodeKey(opts.Key))
-	stmt.SetZeroBlob("$value", int64(len(opts.Data)))
+	stmt.SetInt64("$size", int64(len(opts.Data))) // N.B. uncompressed size
+	stmt.SetZeroBlob("$value", int64(len(enc)))   // N.B. compressed size
 
 	// We need a savepoint to update the blob separately from inserting its row.
 	defer sqlitex.Save(conn)(&err)
@@ -189,7 +213,7 @@ func (s *Store) Put(ctx context.Context, opts blob.PutOptions) (err error) {
 	blob, err := conn.OpenBlob("main", s.tableName, "value", conn.LastInsertRowID(), true)
 	if err != nil {
 		return fmt.Errorf("open blob: %w", err)
-	} else if _, err := blob.Write(opts.Data); err != nil {
+	} else if _, err := blob.Write(enc); err != nil {
 		return fmt.Errorf("write blob: %w", err)
 	} else if err := blob.Close(); err != nil {
 		return fmt.Errorf("close blob: %w", err)

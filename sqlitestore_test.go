@@ -11,13 +11,29 @@ import (
 
 func TestStore(t *testing.T) {
 	// N.B. We need cache=shared to support multiple connections on :memory:
-	db, err := sqlitestore.New("file::memory:?cache=shared", &sqlitestore.Options{
-		PoolSize: 4,
-		Table:    "testblobs",
-	})
-	if err != nil {
-		t.Fatalf("New failed: %v", err)
-	}
+	const dbURL = "file::memory:?cache=shared"
 
-	storetest.Run(t, db)
+	t.Run("Uncompressed", func(t *testing.T) {
+		db, err := sqlitestore.New(dbURL, &sqlitestore.Options{
+			PoolSize:     4,
+			Table:        "testblobs",
+			Uncompressed: true,
+		})
+		if err != nil {
+			t.Fatalf("New failed: %v", err)
+		}
+		storetest.Run(t, db)
+	})
+
+	t.Run("Compressed", func(t *testing.T) {
+		db, err := sqlitestore.New(dbURL, &sqlitestore.Options{
+			PoolSize:     4,
+			Table:        "packblobs",
+			Uncompressed: false,
+		})
+		if err != nil {
+			t.Fatalf("New failed: %v", err)
+		}
+		storetest.Run(t, db)
+	})
 }
