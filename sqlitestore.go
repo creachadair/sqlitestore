@@ -8,7 +8,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/url"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"crawshaw.io/sqlite"
@@ -19,12 +21,45 @@ import (
 
 // Opener constructs a sqlitestore from a SQLite URI, for use with the store
 // package. To specify the table name, prefix addr with "tablename@".
+//
+// If poolsize=n is set, it is used to set the pool size.
+// If compress=v is set, it is used to enable/disable compression (default true).
+// Other query parameters are passed to SQLite.
 func Opener(_ context.Context, addr string) (blob.Store, error) {
-	var tableName string
+	var opts Options
 	if i := strings.Index(addr, "@"); i > 0 {
-		tableName, addr = addr[:i], addr[i+1:]
+		opts.Table, addr = addr[:i], addr[i+1:]
 	}
-	return New(addr, &Options{Table: tableName})
+
+	// Extract and remove query parameters specific to the store.
+	if i := strings.Index(addr, "?"); i > 0 {
+		base := addr[:i]
+		q, err := url.ParseQuery(addr[i+1:])
+		if err != nil {
+			return nil, fmt.Errorf("invalid query: %w", err)
+		}
+		if ps := q.Get("poolsize"); ps != "" {
+			opts.PoolSize, err = strconv.Atoi(ps)
+			if err != nil {
+				return nil, fmt.Errorf("invalid poolsize: %w", err)
+			}
+			delete(q, "poolsize")
+		}
+		if c := q.Get("compress"); c != "" {
+			v, err := strconv.ParseBool(c)
+			if err != nil {
+				return nil, fmt.Errorf("invalid compress: %w", err)
+			}
+			opts.Uncompressed = !v
+			delete(q, "compress")
+		}
+		addr = base
+		if r := q.Encode(); r != "" {
+			addr += "?" + r
+		}
+	}
+
+	return New(addr, &opts)
 }
 
 // A Store implements the blob.Store interface using a SQLite3 database.
