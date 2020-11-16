@@ -226,10 +226,7 @@ func (s *Store) Put(ctx context.Context, opts blob.PutOptions) (err error) {
 	enc := s.encodeBlob(opts.Data)
 	stmt.SetText("$key", encodeKey(opts.Key))
 	stmt.SetInt64("$size", int64(len(opts.Data))) // N.B. uncompressed size
-	stmt.SetZeroBlob("$value", int64(len(enc)))   // N.B. compressed size
-
-	// We need a savepoint to update the blob separately from inserting its row.
-	defer sqlitex.Save(conn)(&err)
+	stmt.SetBytes("$value", enc)                  // N.B. encoded data
 
 	if _, err := stmt.Step(); err != nil {
 		e := err.(sqlite.Error)
@@ -237,21 +234,6 @@ func (s *Store) Put(ctx context.Context, opts blob.PutOptions) (err error) {
 			return blob.ErrKeyExists
 		}
 		return fmt.Errorf("put: %w", err)
-	}
-
-	// Ideally we would just write the blob as a parameter using SetBytes, but
-	// that doesn't work because the driver treats the blob as text.
-	// See: https://github.com/crawshaw/sqlite/issues/94
-	//
-	// As a workaround, write the blob via the streaming interface.  At this
-	// point we know we successfully inserted or replaced the row for the blob.
-	blob, err := conn.OpenBlob("main", s.tableName, "value", conn.LastInsertRowID(), true)
-	if err != nil {
-		return fmt.Errorf("open blob: %w", err)
-	} else if _, err := blob.Write(enc); err != nil {
-		return fmt.Errorf("write blob: %w", err)
-	} else if err := blob.Close(); err != nil {
-		return fmt.Errorf("close blob: %w", err)
 	}
 	return nil
 }
