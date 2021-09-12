@@ -199,7 +199,7 @@ func (s *Store) Get(ctx context.Context, key string) ([]byte, error) {
 	if ok, err := stmt.Step(); err != nil {
 		return nil, fmt.Errorf("get: %w", err)
 	} else if !ok {
-		return nil, blob.ErrKeyNotFound
+		return nil, blob.KeyNotFound(key)
 	}
 	data := make([]byte, stmt.GetLen("value"))
 	stmt.GetBytes("value", data)
@@ -231,7 +231,7 @@ func (s *Store) Put(ctx context.Context, opts blob.PutOptions) (err error) {
 	if _, err := stmt.Step(); err != nil {
 		e := err.(sqlite.Error)
 		if e.Code == sqlite.SQLITE_CONSTRAINT_UNIQUE {
-			return blob.ErrKeyExists
+			return blob.KeyExists(opts.Key)
 		}
 		return fmt.Errorf("put: %w", err)
 	}
@@ -253,7 +253,7 @@ func (s *Store) Size(ctx context.Context, key string) (int64, error) {
 	if ok, err := stmt.Step(); err != nil {
 		return 0, fmt.Errorf("size: %w", err)
 	} else if !ok {
-		return 0, blob.ErrKeyNotFound
+		return 0, blob.KeyNotFound(key)
 	}
 	return stmt.GetInt64("size"), nil
 }
@@ -273,7 +273,7 @@ func (s *Store) Delete(ctx context.Context, key string) error {
 	if _, err := stmt.Step(); err != nil {
 		return fmt.Errorf("delete: %w", err)
 	} else if conn.Changes() == 0 {
-		return blob.ErrKeyNotFound
+		return blob.KeyNotFound(key)
 	}
 	return nil
 }
