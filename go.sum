@@ -5,8 +5,8 @@ crawshaw.io/sqlite v0.3.3-0.20210317204950-23d646f8ac00/go.mod h1:igAO5JulrQ1Dbd
 github.com/cespare/xxhash/v2 v2.1.2/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
 github.com/creachadair/atomicfile v0.2.2/go.mod h1:BRq8Une6ckFneYXZQ+kO7p1ZZP3I2fzVzf28JxrIkBc=
 github.com/creachadair/ffs v0.0.0-20211013230823-ae39e39f88f2/go.mod h1:MVxbSGbJi3n6az0h3DYBEauFTzOawCFmh0W5vL3tzzw=
-github.com/creachadair/ffs v0.0.0-20211129191319-26cfc0f7b8de h1:P+9tq/yifb6YvkJieVUBEDNh3zGuC6fYNRUKzl14ONc=
-github.com/creachadair/ffs v0.0.0-20211129191319-26cfc0f7b8de/go.mod h1:BNrBgicjh5a9fi/kyaz6r/oGMjYXbm3nQ/uSo/v4MHo=
+github.com/creachadair/ffs v0.0.0-20211202183745-4d55a0508d03 h1:R+35ugR9f4fiIsbPRjc9MEDdL6NjYnrScspqAzhT+yA=
+github.com/creachadair/ffs v0.0.0-20211202183745-4d55a0508d03/go.mod h1:BNrBgicjh5a9fi/kyaz6r/oGMjYXbm3nQ/uSo/v4MHo=
 github.com/creachadair/ffs/storage v0.0.0-20211014020421-4f17f651dc77/go.mod h1:JbHoXzCTKfIYF9e+uLhAZkomzMwAD/5B9X3TYuWgaAM=
 github.com/golang/protobuf v1.5.0/go.mod h1:FsONVRAS9T7sI+LIUmWTfcYkHO4aIWwzhcaSAoJOfIk=
 github.com/golang/snappy v0.0.4 h1:yAGX7huGHXlcLOEtBnF4w7FQwA26wojNCwOYAEhLjQM=
