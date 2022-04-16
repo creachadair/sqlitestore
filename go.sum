@@ -3,9 +3,9 @@ crawshaw.io/iox v0.0.0-20181124134642-c51c3df30797/go.mod h1:sXBiorCo8c46JlQV3oX
 crawshaw.io/sqlite v0.3.3-0.20211227050848-2cdb5c1a86a1 h1:Ee5qKxzDpjFjX2tdxl8NlPCTr3PDpagnyf0jL5ow+PY=
 crawshaw.io/sqlite v0.3.3-0.20211227050848-2cdb5c1a86a1/go.mod h1:igAO5JulrQ1DbdZdtVq48mnZUBAPOeFzer7VhDWNtW4=
 github.com/cespare/xxhash/v2 v2.1.2/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
-github.com/creachadair/atomicfile v0.2.4/go.mod h1:BRq8Une6ckFneYXZQ+kO7p1ZZP3I2fzVzf28JxrIkBc=
-github.com/creachadair/ffs v0.0.0-20220322155852-b9ea0b340867 h1:TmHGNvvKd/0ySq+NkBhWipo+rkMElV5rF9kykBh1TSU=
-github.com/creachadair/ffs v0.0.0-20220322155852-b9ea0b340867/go.mod h1:SQaZLcVpQD6EcBDvgjXoCXfck0pHqMZ36YYaFRauSWM=
+github.com/creachadair/atomicfile v0.2.5/go.mod h1:BRq8Une6ckFneYXZQ+kO7p1ZZP3I2fzVzf28JxrIkBc=
+github.com/creachadair/ffs v0.0.0-20220416191121-07217a8a1b12 h1:wcBW74IkIgQxx6tzOKzXHUN2hsLoDR73av975CgAzAo=
+github.com/creachadair/ffs v0.0.0-20220416191121-07217a8a1b12/go.mod h1:WXuemzxJi6QBMNqzrg2dzCO4EhxZeFV203bf8CfYUUw=
 github.com/creachadair/taskgroup v0.3.2/go.mod h1:wieWwecHVzsidg2CsUnFinW1faVN4+kq+TDlRJQ0Wbk=
 github.com/fortytw2/leaktest v1.3.0/go.mod h1:jDsjWgpAGjm2CA7WthBh/CdZYEPF31XHquHwclZch5g=
 github.com/golang/protobuf v1.5.0/go.mod h1:FsONVRAS9T7sI+LIUmWTfcYkHO4aIWwzhcaSAoJOfIk=
