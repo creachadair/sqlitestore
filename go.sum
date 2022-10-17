@@ -2,8 +2,8 @@ crawshaw.io/iox v0.0.0-20181124134642-c51c3df30797 h1:yDf7ARQc637HoxDho7xjqdvO5Z
 crawshaw.io/iox v0.0.0-20181124134642-c51c3df30797/go.mod h1:sXBiorCo8c46JlQV3oXPKINnZ8mcqnye1EkVkqsectk=
 crawshaw.io/sqlite v0.3.3-0.20211227050848-2cdb5c1a86a1 h1:Ee5qKxzDpjFjX2tdxl8NlPCTr3PDpagnyf0jL5ow+PY=
 crawshaw.io/sqlite v0.3.3-0.20211227050848-2cdb5c1a86a1/go.mod h1:igAO5JulrQ1DbdZdtVq48mnZUBAPOeFzer7VhDWNtW4=
-github.com/creachadair/ffs v0.0.0-20221011220421-0b65cfffbf3c h1:ihLLpJSEtK1fH8kXwFoUEcoJrk2y4sb6rXwUf9BHu0s=
-github.com/creachadair/ffs v0.0.0-20221011220421-0b65cfffbf3c/go.mod h1:QJpiT9aVcYZxfGWx3cgBk6lBmUcXH8ux9JsAbqj7Yn0=
+github.com/creachadair/ffs v0.0.0-20221012164154-450afdc06316 h1:1/cT8P4pmAL5sfVR27GpNkbNCRDgJtwKzs3JJkJ8zf0=
+github.com/creachadair/ffs v0.0.0-20221012164154-450afdc06316/go.mod h1:cXJ7g0EAn04jN3vrYigErJZ5OE7KCyeuFI9BptZZif4=
 github.com/golang/snappy v0.0.4 h1:yAGX7huGHXlcLOEtBnF4w7FQwA26wojNCwOYAEhLjQM=
 github.com/golang/snappy v0.0.4/go.mod h1:/XxbfmMg8lxefKM7IXC3fBNl/7bRcc72aCRzEWrmP2Q=
 github.com/google/go-cmp v0.5.9 h1:O2Tfq5qg4qc4AmwVlvv0oLiVAGB7enBSJ2x2DqQFi38=
