@@ -4,7 +4,7 @@ go 1.18
 
 require (
 	crawshaw.io/sqlite v0.3.3-0.20211227050848-2cdb5c1a86a1
-	github.com/creachadair/ffs v0.0.0-20221128170207-5708b8698463
+	github.com/creachadair/ffs v0.0.0-20221205161759-ba465e4a0350
 	github.com/golang/snappy v0.0.4
 )
 
