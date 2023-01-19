@@ -181,7 +181,24 @@ func (s *Store) decodeBlob(data []byte) ([]byte, error) {
 }
 
 // Close implements blob.Closer.
-func (s *Store) Close(context.Context) error { return s.pool.Close() }
+func (s *Store) Close(ctx context.Context) error {
+	// Attempt to clean up the WAL before closing.
+	conn := s.pool.Get(ctx)
+	var verr error
+	if conn != nil {
+		conn.SetInterrupt(ctx.Done())
+		stmt := conn.Prep("VACUUM;")
+		_, verr = stmt.Step()
+		s.pool.Put(conn)
+	}
+
+	// Even if that fails, however, make sure the pool gets cleaned up.
+	cerr := s.pool.Close()
+	if verr != nil {
+		return verr
+	}
+	return cerr
+}
 
 // Get implements part of blob.Store.
 func (s *Store) Get(ctx context.Context, key string) ([]byte, error) {
