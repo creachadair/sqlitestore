@@ -72,7 +72,6 @@ type Store struct {
 	getStmt     string // params: key
 	putStmtRep  string // params: key, value; replace=true
 	putStmtNRep string // params: key, value; replace=false
-	sizeStmt    string // params: key
 	deleteStmt  string // params: key
 	listStmt    string // params: start
 	lenStmt     string // no params
@@ -92,7 +91,6 @@ func New(uri string, opts *Options) (*Store, error) {
 
 	const createStmt = `CREATE TABLE IF NOT EXISTS %s (
    key BLOB UNIQUE NOT NULL,
-   size INT,
    value BLOB NOT NULL
 );`
 	stmt, _, err := conn.PrepareTransient(fmt.Sprintf(createStmt, tableName))
@@ -109,9 +107,8 @@ func New(uri string, opts *Options) (*Store, error) {
 		tableName:   tableName,
 		compress:    opts == nil || !opts.Uncompressed,
 		getStmt:     fmt.Sprintf(`SELECT value FROM %s WHERE key = $key;`, tableName),
-		putStmtRep:  fmt.Sprintf(`REPLACE into %s (key, size, value) VALUES ($key, $size, $value);`, tableName),
-		putStmtNRep: fmt.Sprintf(`INSERT into %s (key, size, value) VALUES ($key, $size, $value);`, tableName),
-		sizeStmt:    fmt.Sprintf(`SELECT size FROM %s WHERE key = $key;`, tableName),
+		putStmtRep:  fmt.Sprintf(`REPLACE into %s (key, value) VALUES ($key, $value);`, tableName),
+		putStmtNRep: fmt.Sprintf(`INSERT into %s (key, value) VALUES ($key, $value);`, tableName),
 		deleteStmt:  fmt.Sprintf(`DELETE FROM %s WHERE key = $key;`, tableName),
 		listStmt:    fmt.Sprintf(`SELECT key FROM %s WHERE key >= $start ORDER BY key;`, tableName),
 		lenStmt:     fmt.Sprintf(`SELECT count(*) AS len FROM %s;`, tableName),
@@ -242,8 +239,7 @@ func (s *Store) Put(ctx context.Context, opts blob.PutOptions) (err error) {
 
 	enc := s.encodeBlob(opts.Data)
 	stmt.SetText("$key", encodeKey(opts.Key))
-	stmt.SetInt64("$size", int64(len(opts.Data))) // N.B. uncompressed size
-	stmt.SetBytes("$value", enc)                  // N.B. encoded data
+	stmt.SetBytes("$value", enc) // N.B. encoded data
 
 	if _, err := stmt.Step(); err != nil {
 		e := err.(sqlite.Error)
@@ -253,26 +249,6 @@ func (s *Store) Put(ctx context.Context, opts blob.PutOptions) (err error) {
 		return fmt.Errorf("put: %w", err)
 	}
 	return nil
-}
-
-// Size implements part of blob.Store.
-func (s *Store) Size(ctx context.Context, key string) (int64, error) {
-	conn := s.pool.Get(ctx)
-	if conn == nil {
-		return 0, context.Canceled
-	}
-	defer s.pool.Put(conn)
-	conn.SetInterrupt(ctx.Done())
-
-	stmt := conn.Prep(s.sizeStmt)
-	defer stmt.Reset()
-	stmt.SetText("$key", encodeKey(key))
-	if ok, err := stmt.Step(); err != nil {
-		return 0, fmt.Errorf("size: %w", err)
-	} else if !ok {
-		return 0, blob.KeyNotFound(key)
-	}
-	return stmt.GetInt64("size"), nil
 }
 
 // Delete implements part of blob.Store.
