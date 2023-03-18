@@ -2,10 +2,10 @@ crawshaw.io/iox v0.0.0-20181124134642-c51c3df30797 h1:yDf7ARQc637HoxDho7xjqdvO5Z
 crawshaw.io/iox v0.0.0-20181124134642-c51c3df30797/go.mod h1:sXBiorCo8c46JlQV3oXPKINnZ8mcqnye1EkVkqsectk=
 crawshaw.io/sqlite v0.3.3-0.20211227050848-2cdb5c1a86a1 h1:Ee5qKxzDpjFjX2tdxl8NlPCTr3PDpagnyf0jL5ow+PY=
 crawshaw.io/sqlite v0.3.3-0.20211227050848-2cdb5c1a86a1/go.mod h1:igAO5JulrQ1DbdZdtVq48mnZUBAPOeFzer7VhDWNtW4=
-github.com/creachadair/ffs v0.0.0-20230308163003-746ef3485a7d h1:RqnSRefaZIdpy9mZYFyBQ7iG1dQtII6QRuydVxK/0D4=
-github.com/creachadair/ffs v0.0.0-20230308163003-746ef3485a7d/go.mod h1:o+fqj8l27+SkskQYkHJ1sXRtGpkefT7rfVKCTjmPZNA=
-github.com/creachadair/mds v0.0.0-20230311051846-51f3c1148c40 h1:t6/iwuDGNF2nYEBrnFnQcCnjA8jTGLXvBCCNCPzWtXo=
-github.com/creachadair/mds v0.0.0-20230311051846-51f3c1148c40/go.mod h1:caBACU+n1Q/rZ252FTzfnG0/H+ZUi+UnIQtEOraMv/g=
+github.com/creachadair/ffs v0.0.0-20230314213740-1655997c2914 h1:6ztz4yQ11te2P24FiiUZU6wx4coO6luB5Aot2KWCNAM=
+github.com/creachadair/ffs v0.0.0-20230314213740-1655997c2914/go.mod h1:2rBjrOZ3CVaSiOAsSma7xBWv9lZsuA2e9OuIrmaiVQI=
+github.com/creachadair/mds v0.0.0-20230313153906-9788b6f60568 h1:LzMDPh2FLXEHnQNTjGJT+vInPSDVOUTuzqE4GskHTNg=
+github.com/creachadair/mds v0.0.0-20230313153906-9788b6f60568/go.mod h1:caBACU+n1Q/rZ252FTzfnG0/H+ZUi+UnIQtEOraMv/g=
 github.com/golang/snappy v0.0.4 h1:yAGX7huGHXlcLOEtBnF4w7FQwA26wojNCwOYAEhLjQM=
 github.com/golang/snappy v0.0.4/go.mod h1:/XxbfmMg8lxefKM7IXC3fBNl/7bRcc72aCRzEWrmP2Q=
 github.com/google/go-cmp v0.5.9 h1:O2Tfq5qg4qc4AmwVlvv0oLiVAGB7enBSJ2x2DqQFi38=
