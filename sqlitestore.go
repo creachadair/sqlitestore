@@ -90,6 +90,7 @@ func New(uri string, opts *Options) (*Store, error) {
 	// Create the table, if necessary.
 	tableName := opts.tableName()
 	if _, err := db.Exec(fmt.Sprintf(`
+PRAGMA journal_mode = WAL;
 CREATE TABLE IF NOT EXISTS %s (
    key BLOB UNIQUE NOT NULL,
    value BLOB NOT NULL
@@ -184,8 +185,8 @@ func (s *Store) Close(ctx context.Context) error {
 
 // Get implements part of blob.Store.
 func (s *Store) Get(ctx context.Context, key string) ([]byte, error) {
-	return withConnValue(ctx, s.db, func(conn *sql.Conn) ([]byte, error) {
-		row := conn.QueryRowContext(ctx, s.getStmt, sql.Named("key", encodeKey(key)))
+	return withTxValue(ctx, s.db, func(tx *sql.Tx) ([]byte, error) {
+		row := tx.QueryRowContext(ctx, s.getStmt, sql.Named("key", encodeKey(key)))
 		var data []byte
 		if err := row.Scan(&data); errors.Is(err, sql.ErrNoRows) {
 			return nil, blob.KeyNotFound(key)
@@ -202,8 +203,8 @@ func (s *Store) Put(ctx context.Context, opts blob.PutOptions) error {
 	if opts.Replace {
 		stmt = s.putStmtRep
 	}
-	return withConnErr(ctx, s.db, func(conn *sql.Conn) error {
-		_, err := conn.ExecContext(ctx, stmt,
+	return withTxErr(ctx, s.db, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, stmt,
 			sql.Named("key", encodeKey(opts.Key)),
 			sql.Named("value", s.encodeBlob(opts.Data)),
 		)
@@ -219,8 +220,8 @@ func (s *Store) Put(ctx context.Context, opts blob.PutOptions) error {
 
 // Delete implements part of blob.Store.
 func (s *Store) Delete(ctx context.Context, key string) error {
-	return withConnErr(ctx, s.db, func(conn *sql.Conn) error {
-		rsp, err := conn.ExecContext(ctx, s.deleteStmt, sql.Named("key", encodeKey(key)))
+	return withTxErr(ctx, s.db, func(tx *sql.Tx) error {
+		rsp, err := tx.ExecContext(ctx, s.deleteStmt, sql.Named("key", encodeKey(key)))
 		if err != nil {
 			return fmt.Errorf("delete: %w", err)
 		} else if nr, _ := rsp.RowsAffected(); nr == 0 {
@@ -232,13 +233,7 @@ func (s *Store) Delete(ctx context.Context, key string) error {
 
 // List implements part of blob.Store.
 func (s *Store) List(ctx context.Context, start string, f func(string) error) error {
-	return withConnErr(ctx, s.db, func(conn *sql.Conn) error {
-		tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-		if err != nil {
-			return fmt.Errorf("list: %w", err)
-		}
-		defer tx.Rollback()
-
+	return withTxErr(ctx, s.db, func(tx *sql.Tx) error {
 		rows, err := tx.QueryContext(ctx, s.listStmt, sql.Named("start", encodeKey(start)))
 		if err != nil {
 			return fmt.Errorf("list: %w", err)
@@ -262,8 +257,8 @@ func (s *Store) List(ctx context.Context, start string, f func(string) error) er
 
 // Len implements part of blob.Store.
 func (s *Store) Len(ctx context.Context) (int64, error) {
-	return withConnValue(ctx, s.db, func(conn *sql.Conn) (int64, error) {
-		row := conn.QueryRowContext(ctx, s.lenStmt)
+	return withTxValue(ctx, s.db, func(tx *sql.Tx) (int64, error) {
+		row := tx.QueryRowContext(ctx, s.lenStmt)
 		var nr int64
 		if err := row.Scan(&nr); err != nil {
 			return 0, err
@@ -272,31 +267,28 @@ func (s *Store) Len(ctx context.Context) (int64, error) {
 	})
 }
 
-func withConnValue[T any](ctx context.Context, db *sql.DB, f func(*sql.Conn) (T, error)) (_ T, err error) {
-	conn, err := db.Conn(ctx)
+func withTxValue[T any](ctx context.Context, db *sql.DB, f func(*sql.Tx) (T, error)) (T, error) {
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		var zero T
 		return zero, err
 	}
-	defer func() {
-		cerr := conn.Close()
-		if err == nil {
-			err = cerr
-		}
-	}()
-	return f(conn)
+	defer tx.Rollback()
+	v, err := f(tx)
+	if err != nil {
+		return v, err
+	}
+	return v, tx.Commit()
 }
 
-func withConnErr(ctx context.Context, db *sql.DB, f func(*sql.Conn) error) (err error) {
-	conn, err := db.Conn(ctx)
+func withTxErr(ctx context.Context, db *sql.DB, f func(*sql.Tx) error) error {
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		cerr := conn.Close()
-		if err == nil {
-			err = cerr
-		}
-	}()
-	return f(conn)
+	defer tx.Rollback()
+	if err := f(tx); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
