@@ -5,6 +5,7 @@ package sqlitestore
 
 import (
 	"context"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -13,10 +14,9 @@ import (
 	"strconv"
 	"strings"
 
-	"crawshaw.io/sqlite"
-	"crawshaw.io/sqlite/sqlitex"
 	"github.com/creachadair/ffs/blob"
 	"github.com/golang/snappy"
+	"modernc.org/sqlite"
 )
 
 // Opener constructs a sqlitestore from a SQLite URI, for use with the store
@@ -64,7 +64,7 @@ func Opener(_ context.Context, addr string) (blob.Store, error) {
 
 // A Store implements the blob.Store interface using a SQLite3 database.
 type Store struct {
-	pool      *sqlitex.Pool
+	pool      *sql.DB
 	tableName string
 	compress  bool
 
@@ -79,26 +79,21 @@ type Store struct {
 
 // New creates or opens a store at the specified database.
 func New(uri string, opts *Options) (*Store, error) {
-	pool, err := sqlitex.Open(uri, opts.openFlags(), opts.poolSize())
+	pool, err := sql.Open(opts.driverName(), uri)
 	if err != nil {
 		return nil, err
+	}
+	if size := opts.poolSize(); size > 0 {
+		pool.SetMaxOpenConns(size)
 	}
 
 	// Create the table, if necessary.
 	tableName := opts.tableName()
-	conn := pool.Get(context.Background())
-	defer pool.Put(conn)
-
-	const createStmt = `CREATE TABLE IF NOT EXISTS %s (
+	if _, err := pool.Exec(fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %s (
    key BLOB UNIQUE NOT NULL,
    value BLOB NOT NULL
-);`
-	stmt, _, err := conn.PrepareTransient(fmt.Sprintf(createStmt, tableName))
-	if err != nil {
-		return nil, fmt.Errorf("creating table: %w", err)
-	}
-	defer stmt.Finalize()
-	if _, err := stmt.Step(); err != nil {
+);`, tableName)); err != nil {
 		return nil, fmt.Errorf("creating table: %w", err)
 	}
 
@@ -118,11 +113,11 @@ func New(uri string, opts *Options) (*Store, error) {
 // Options are options for constructing a Store.  A nil *Options is ready for
 // use and provides default values as described.
 type Options struct {
+	// The name of the SQL driver to use, default "sqlite".
+	Driver string
+
 	// The number of connections to allow in the pool. If <= 0, use runtime.NumCPU.
 	PoolSize int
-
-	// Flags to use when opening the SQLite database.
-	Flags sqlite.OpenFlags
 
 	// The name of the table to use for blob data.  If unset, use "blobs".
 	Table string
@@ -132,18 +127,18 @@ type Options struct {
 	Uncompressed bool
 }
 
+func (o *Options) driverName() string {
+	if o == nil || o.Driver == "" {
+		return "sqlite"
+	}
+	return o.Driver
+}
+
 func (o *Options) poolSize() int {
 	if o == nil || o.PoolSize <= 0 {
 		return runtime.NumCPU()
 	}
 	return o.PoolSize
-}
-
-func (o *Options) openFlags() sqlite.OpenFlags {
-	if o == nil {
-		return 0
-	}
-	return o.Flags
 }
 
 func (o *Options) tableName() string {
@@ -180,72 +175,39 @@ func (s *Store) decodeBlob(data []byte) ([]byte, error) {
 // Close implements blob.Closer.
 func (s *Store) Close(ctx context.Context) error {
 	// Attempt to clean up the WAL before closing.
-	conn := s.pool.Get(ctx)
-	var verr error
-	if conn != nil {
-		conn.SetInterrupt(ctx.Done())
-		stmt := conn.Prep("VACUUM;")
-		_, verr = stmt.Step()
-		s.pool.Put(conn)
-	}
+	_, verr := s.pool.Exec(`VACUUM; PRAGMA wal_checkpoint(TRUNCATE);`)
 
 	// Even if that fails, however, make sure the pool gets cleaned up.
 	cerr := s.pool.Close()
-	if verr != nil {
-		return verr
-	}
-	return cerr
+	return errors.Join(verr, cerr)
 }
 
 // Get implements part of blob.Store.
 func (s *Store) Get(ctx context.Context, key string) ([]byte, error) {
-	conn := s.pool.Get(ctx)
-	if conn == nil {
-		return nil, context.Canceled
-	}
-	defer s.pool.Put(conn)
-	conn.SetInterrupt(ctx.Done())
-
-	stmt := conn.Prep(s.getStmt)
-	defer stmt.Reset()
-	stmt.SetText("$key", encodeKey(key))
-
-	if ok, err := stmt.Step(); err != nil {
-		return nil, fmt.Errorf("get: %w", err)
-	} else if !ok {
+	row := s.pool.QueryRowContext(ctx, s.getStmt, sql.Named("key", encodeKey(key)))
+	var data []byte
+	if err := row.Scan(&data); errors.Is(err, sql.ErrNoRows) {
 		return nil, blob.KeyNotFound(key)
+	} else if err != nil {
+		return nil, fmt.Errorf("get: %w", err)
 	}
-	data := make([]byte, stmt.GetLen("value"))
-	stmt.GetBytes("value", data)
 	return s.decodeBlob(data)
 }
 
 // Put implements part of blob.Store.
-func (s *Store) Put(ctx context.Context, opts blob.PutOptions) (err error) {
-	conn := s.pool.Get(ctx)
-	if conn == nil {
-		return context.Canceled
-	}
-	defer s.pool.Put(conn)
-	conn.SetInterrupt(ctx.Done())
-
-	var stmt *sqlite.Stmt
+func (s *Store) Put(ctx context.Context, opts blob.PutOptions) error {
+	stmt := s.putStmtNRep
 	if opts.Replace {
-		stmt = conn.Prep(s.putStmtRep)
-	} else {
-		stmt = conn.Prep(s.putStmtNRep)
+		stmt = s.putStmtRep
 	}
-	defer stmt.Reset()
-
-	enc := s.encodeBlob(opts.Data)
-	stmt.SetText("$key", encodeKey(opts.Key))
-	stmt.SetBytes("$value", enc) // N.B. encoded data
-
-	if _, err := stmt.Step(); err != nil {
-		e := err.(sqlite.Error)
-		if e.Code == sqlite.SQLITE_CONSTRAINT_UNIQUE {
-			return blob.KeyExists(opts.Key)
-		}
+	_, err := s.pool.ExecContext(ctx, stmt,
+		sql.Named("key", encodeKey(opts.Key)),
+		sql.Named("value", s.encodeBlob(opts.Data)),
+	)
+	const sqliteConstraintUnique = 2067
+	if serr, ok := err.(*sqlite.Error); ok && serr.Code() == sqliteConstraintUnique {
+		return blob.KeyExists(opts.Key)
+	} else if err != nil {
 		return fmt.Errorf("put: %w", err)
 	}
 	return nil
@@ -253,19 +215,10 @@ func (s *Store) Put(ctx context.Context, opts blob.PutOptions) (err error) {
 
 // Delete implements part of blob.Store.
 func (s *Store) Delete(ctx context.Context, key string) error {
-	conn := s.pool.Get(ctx)
-	if conn == nil {
-		return context.Canceled
-	}
-	defer s.pool.Put(conn)
-	conn.SetInterrupt(ctx.Done())
-
-	stmt := conn.Prep(s.deleteStmt)
-	defer stmt.Reset()
-	stmt.SetText("$key", encodeKey(key))
-	if _, err := stmt.Step(); err != nil {
+	rsp, err := s.pool.ExecContext(ctx, s.deleteStmt, sql.Named("key", encodeKey(key)))
+	if err != nil {
 		return fmt.Errorf("delete: %w", err)
-	} else if conn.Changes() == 0 {
+	} else if nr, _ := rsp.RowsAffected(); nr == 0 {
 		return blob.KeyNotFound(key)
 	}
 	return nil
@@ -273,52 +226,38 @@ func (s *Store) Delete(ctx context.Context, key string) error {
 
 // List implements part of blob.Store.
 func (s *Store) List(ctx context.Context, start string, f func(string) error) error {
-	conn := s.pool.Get(ctx)
-	if conn == nil {
-		return context.Canceled
+	tx, err := s.pool.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return fmt.Errorf("list: %w", err)
 	}
-	defer s.pool.Put(conn)
-	conn.SetInterrupt(ctx.Done())
+	defer tx.Rollback()
 
-	stmt := conn.Prep(s.listStmt)
-	defer stmt.Reset()
-
-	stmt.SetText("$start", encodeKey(start))
-	for {
-		ok, err := stmt.Step()
-		if err != nil {
+	rows, err := tx.QueryContext(ctx, s.listStmt, sql.Named("start", encodeKey(start)))
+	if err != nil {
+		return fmt.Errorf("list: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key []byte
+		if err := rows.Scan(&key); err != nil {
 			return fmt.Errorf("list: %w", err)
-		} else if !ok {
-			break
 		}
-
-		key := make([]byte, stmt.GetLen("key"))
-		stmt.GetBytes("key", key)
 		skey := decodeKey(key)
-		if err := f(skey); err == blob.ErrStopListing {
+		if err := f(skey); errors.Is(err, blob.ErrStopListing) {
 			break
 		} else if err != nil {
 			return err
 		}
 	}
-	return nil
+	return rows.Close()
 }
 
 // Len implements part of blob.Store.
 func (s *Store) Len(ctx context.Context) (int64, error) {
-	conn := s.pool.Get(ctx)
-	if conn == nil {
-		return 0, context.Canceled
+	row := s.pool.QueryRowContext(ctx, s.lenStmt)
+	var nr int64
+	if err := row.Scan(&nr); err != nil {
+		return 0, err
 	}
-	defer s.pool.Put(conn)
-	conn.SetInterrupt(ctx.Done())
-
-	stmt := conn.Prep(s.lenStmt)
-	defer stmt.Reset()
-	if ok, err := stmt.Step(); err != nil {
-		return 0, fmt.Errorf("len: %w", err)
-	} else if !ok {
-		return 0, errors.New("len: internal error: no count reported")
-	}
-	return stmt.GetInt64("len"), nil
+	return nr, nil
 }
