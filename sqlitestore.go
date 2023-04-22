@@ -64,7 +64,7 @@ func Opener(_ context.Context, addr string) (blob.Store, error) {
 
 // A Store implements the blob.Store interface using a SQLite3 database.
 type Store struct {
-	pool      *sql.DB
+	db        *sql.DB
 	tableName string
 	compress  bool
 
@@ -79,17 +79,17 @@ type Store struct {
 
 // New creates or opens a store at the specified database.
 func New(uri string, opts *Options) (*Store, error) {
-	pool, err := sql.Open(opts.driverName(), uri)
+	db, err := sql.Open(opts.driverName(), uri)
 	if err != nil {
 		return nil, err
 	}
 	if size := opts.poolSize(); size > 0 {
-		pool.SetMaxOpenConns(size)
+		db.SetMaxOpenConns(size)
 	}
 
 	// Create the table, if necessary.
 	tableName := opts.tableName()
-	if _, err := pool.Exec(fmt.Sprintf(`
+	if _, err := db.Exec(fmt.Sprintf(`
 CREATE TABLE IF NOT EXISTS %s (
    key BLOB UNIQUE NOT NULL,
    value BLOB NOT NULL
@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS %s (
 	}
 
 	return &Store{
-		pool:        pool,
+		db:          db,
 		tableName:   tableName,
 		compress:    opts == nil || !opts.Uncompressed,
 		getStmt:     fmt.Sprintf(`SELECT value FROM %s WHERE key = $key;`, tableName),
@@ -175,23 +175,25 @@ func (s *Store) decodeBlob(data []byte) ([]byte, error) {
 // Close implements blob.Closer.
 func (s *Store) Close(ctx context.Context) error {
 	// Attempt to clean up the WAL before closing.
-	_, verr := s.pool.Exec(`VACUUM; PRAGMA wal_checkpoint(TRUNCATE);`)
+	_, verr := s.db.Exec(`VACUUM; PRAGMA wal_checkpoint(TRUNCATE);`)
 
 	// Even if that fails, however, make sure the pool gets cleaned up.
-	cerr := s.pool.Close()
+	cerr := s.db.Close()
 	return errors.Join(verr, cerr)
 }
 
 // Get implements part of blob.Store.
 func (s *Store) Get(ctx context.Context, key string) ([]byte, error) {
-	row := s.pool.QueryRowContext(ctx, s.getStmt, sql.Named("key", encodeKey(key)))
-	var data []byte
-	if err := row.Scan(&data); errors.Is(err, sql.ErrNoRows) {
-		return nil, blob.KeyNotFound(key)
-	} else if err != nil {
-		return nil, fmt.Errorf("get: %w", err)
-	}
-	return s.decodeBlob(data)
+	return withConnValue(ctx, s.db, func(conn *sql.Conn) ([]byte, error) {
+		row := conn.QueryRowContext(ctx, s.getStmt, sql.Named("key", encodeKey(key)))
+		var data []byte
+		if err := row.Scan(&data); errors.Is(err, sql.ErrNoRows) {
+			return nil, blob.KeyNotFound(key)
+		} else if err != nil {
+			return nil, fmt.Errorf("get: %w", err)
+		}
+		return s.decodeBlob(data)
+	})
 }
 
 // Put implements part of blob.Store.
@@ -200,64 +202,101 @@ func (s *Store) Put(ctx context.Context, opts blob.PutOptions) error {
 	if opts.Replace {
 		stmt = s.putStmtRep
 	}
-	_, err := s.pool.ExecContext(ctx, stmt,
-		sql.Named("key", encodeKey(opts.Key)),
-		sql.Named("value", s.encodeBlob(opts.Data)),
-	)
-	const sqliteConstraintUnique = 2067
-	if serr, ok := err.(*sqlite.Error); ok && serr.Code() == sqliteConstraintUnique {
-		return blob.KeyExists(opts.Key)
-	} else if err != nil {
-		return fmt.Errorf("put: %w", err)
-	}
-	return nil
+	return withConnErr(ctx, s.db, func(conn *sql.Conn) error {
+		_, err := conn.ExecContext(ctx, stmt,
+			sql.Named("key", encodeKey(opts.Key)),
+			sql.Named("value", s.encodeBlob(opts.Data)),
+		)
+		const sqliteConstraintUnique = 2067
+		if serr, ok := err.(*sqlite.Error); ok && serr.Code() == sqliteConstraintUnique {
+			return blob.KeyExists(opts.Key)
+		} else if err != nil {
+			return fmt.Errorf("put: %w", err)
+		}
+		return nil
+	})
 }
 
 // Delete implements part of blob.Store.
 func (s *Store) Delete(ctx context.Context, key string) error {
-	rsp, err := s.pool.ExecContext(ctx, s.deleteStmt, sql.Named("key", encodeKey(key)))
-	if err != nil {
-		return fmt.Errorf("delete: %w", err)
-	} else if nr, _ := rsp.RowsAffected(); nr == 0 {
-		return blob.KeyNotFound(key)
-	}
-	return nil
+	return withConnErr(ctx, s.db, func(conn *sql.Conn) error {
+		rsp, err := conn.ExecContext(ctx, s.deleteStmt, sql.Named("key", encodeKey(key)))
+		if err != nil {
+			return fmt.Errorf("delete: %w", err)
+		} else if nr, _ := rsp.RowsAffected(); nr == 0 {
+			return blob.KeyNotFound(key)
+		}
+		return nil
+	})
 }
 
 // List implements part of blob.Store.
 func (s *Store) List(ctx context.Context, start string, f func(string) error) error {
-	tx, err := s.pool.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return fmt.Errorf("list: %w", err)
-	}
-	defer tx.Rollback()
-
-	rows, err := tx.QueryContext(ctx, s.listStmt, sql.Named("start", encodeKey(start)))
-	if err != nil {
-		return fmt.Errorf("list: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var key []byte
-		if err := rows.Scan(&key); err != nil {
+	return withConnErr(ctx, s.db, func(conn *sql.Conn) error {
+		tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+		if err != nil {
 			return fmt.Errorf("list: %w", err)
 		}
-		skey := decodeKey(key)
-		if err := f(skey); errors.Is(err, blob.ErrStopListing) {
-			break
-		} else if err != nil {
-			return err
+		defer tx.Rollback()
+
+		rows, err := tx.QueryContext(ctx, s.listStmt, sql.Named("start", encodeKey(start)))
+		if err != nil {
+			return fmt.Errorf("list: %w", err)
 		}
-	}
-	return rows.Close()
+		defer rows.Close()
+		for rows.Next() {
+			var key []byte
+			if err := rows.Scan(&key); err != nil {
+				return fmt.Errorf("list: %w", err)
+			}
+			skey := decodeKey(key)
+			if err := f(skey); errors.Is(err, blob.ErrStopListing) {
+				break
+			} else if err != nil {
+				return err
+			}
+		}
+		return rows.Close()
+	})
 }
 
 // Len implements part of blob.Store.
 func (s *Store) Len(ctx context.Context) (int64, error) {
-	row := s.pool.QueryRowContext(ctx, s.lenStmt)
-	var nr int64
-	if err := row.Scan(&nr); err != nil {
-		return 0, err
+	return withConnValue(ctx, s.db, func(conn *sql.Conn) (int64, error) {
+		row := conn.QueryRowContext(ctx, s.lenStmt)
+		var nr int64
+		if err := row.Scan(&nr); err != nil {
+			return 0, err
+		}
+		return nr, nil
+	})
+}
+
+func withConnValue[T any](ctx context.Context, db *sql.DB, f func(*sql.Conn) (T, error)) (_ T, err error) {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		var zero T
+		return zero, err
 	}
-	return nr, nil
+	defer func() {
+		cerr := conn.Close()
+		if err == nil {
+			err = cerr
+		}
+	}()
+	return f(conn)
+}
+
+func withConnErr(ctx context.Context, db *sql.DB, f func(*sql.Conn) error) (err error) {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		cerr := conn.Close()
+		if err == nil {
+			err = cerr
+		}
+	}()
+	return f(conn)
 }
