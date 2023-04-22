@@ -84,7 +84,7 @@ func New(uri string, opts *Options) (*Store, error) {
 		return nil, err
 	}
 	if size := opts.poolSize(); size > 0 {
-		db.SetMaxOpenConns(size)
+		db.SetMaxIdleConns(size)
 	}
 
 	// Create the table, if necessary.
