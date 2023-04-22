@@ -1,6 +1,6 @@
 module github.com/creachadair/sqlitestore
 
-go 1.19
+go 1.20
 
 require (
 	github.com/creachadair/ffs v0.0.0-20230422212610-c0c8aaed6b8c
