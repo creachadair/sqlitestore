@@ -3,9 +3,9 @@ module github.com/creachadair/sqlitestore
 go 1.20
 
 require (
-	github.com/creachadair/ffs v0.0.0-20230422230946-ae5c147c555f
+	github.com/creachadair/ffs v0.0.1
 	github.com/golang/snappy v0.0.4
-	modernc.org/sqlite v1.22.0
+	modernc.org/sqlite v1.22.1
 )
 
 require (
@@ -22,7 +22,7 @@ require (
 	lukechampine.com/uint128 v1.3.0 // indirect
 	modernc.org/cc/v3 v3.40.0 // indirect
 	modernc.org/ccgo/v3 v3.16.13 // indirect
-	modernc.org/libc v1.22.4 // indirect
+	modernc.org/libc v1.22.5 // indirect
 	modernc.org/mathutil v1.5.0 // indirect
 	modernc.org/memory v1.5.0 // indirect
 	modernc.org/opt v0.1.3 // indirect
