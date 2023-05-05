@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/creachadair/ffs/blob"
 	"github.com/golang/snappy"
@@ -64,7 +65,9 @@ func Opener(_ context.Context, addr string) (blob.Store, error) {
 
 // A Store implements the blob.Store interface using a SQLite3 database.
 type Store struct {
-	db        *sql.DB
+	txmu sync.RWMutex // ex: write db, sh: read db
+	db   *sql.DB
+
 	tableName string
 	compress  bool
 
@@ -175,6 +178,9 @@ func (s *Store) decodeBlob(data []byte) ([]byte, error) {
 
 // Close implements blob.Closer.
 func (s *Store) Close(ctx context.Context) error {
+	s.txmu.Lock()
+	defer s.txmu.Unlock()
+
 	// Attempt to clean up the WAL before closing.
 	_, verr := s.db.Exec(`VACUUM; PRAGMA wal_checkpoint(TRUNCATE);`)
 
@@ -185,6 +191,8 @@ func (s *Store) Close(ctx context.Context) error {
 
 // Get implements part of blob.Store.
 func (s *Store) Get(ctx context.Context, key string) ([]byte, error) {
+	s.txmu.RLock()
+	defer s.txmu.RUnlock()
 	return withTxValue(ctx, s.db, func(tx *sql.Tx) ([]byte, error) {
 		row := tx.QueryRowContext(ctx, s.getStmt, sql.Named("key", encodeKey(key)))
 		var data []byte
@@ -203,6 +211,8 @@ func (s *Store) Put(ctx context.Context, opts blob.PutOptions) error {
 	if opts.Replace {
 		stmt = s.putStmtRep
 	}
+	s.txmu.Lock()
+	defer s.txmu.Unlock()
 	return withTxErr(ctx, s.db, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, stmt,
 			sql.Named("key", encodeKey(opts.Key)),
@@ -220,6 +230,8 @@ func (s *Store) Put(ctx context.Context, opts blob.PutOptions) error {
 
 // Delete implements part of blob.Store.
 func (s *Store) Delete(ctx context.Context, key string) error {
+	s.txmu.Lock()
+	defer s.txmu.Unlock()
 	return withTxErr(ctx, s.db, func(tx *sql.Tx) error {
 		rsp, err := tx.ExecContext(ctx, s.deleteStmt, sql.Named("key", encodeKey(key)))
 		if err != nil {
@@ -233,6 +245,8 @@ func (s *Store) Delete(ctx context.Context, key string) error {
 
 // List implements part of blob.Store.
 func (s *Store) List(ctx context.Context, start string, f func(string) error) error {
+	s.txmu.RLock()
+	defer s.txmu.RUnlock()
 	return withTxErr(ctx, s.db, func(tx *sql.Tx) error {
 		rows, err := tx.QueryContext(ctx, s.listStmt, sql.Named("start", encodeKey(start)))
 		if err != nil {
@@ -257,6 +271,8 @@ func (s *Store) List(ctx context.Context, start string, f func(string) error) er
 
 // Len implements part of blob.Store.
 func (s *Store) Len(ctx context.Context) (int64, error) {
+	s.txmu.RLock()
+	defer s.txmu.RUnlock()
 	return withTxValue(ctx, s.db, func(tx *sql.Tx) (int64, error) {
 		row := tx.QueryRowContext(ctx, s.lenStmt)
 		var nr int64
