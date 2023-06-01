@@ -3,6 +3,7 @@
 package sqlitestore_test
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/creachadair/ffs/blob/storetest"
@@ -10,11 +11,9 @@ import (
 )
 
 func TestStore(t *testing.T) {
-	// N.B. We need cache=shared to support multiple connections on :memory:
-	const dbURL = "file::memory:?cache=shared"
-
 	t.Run("Uncompressed", func(t *testing.T) {
-		db, err := sqlitestore.New(dbURL, &sqlitestore.Options{
+		url := "file:" + filepath.Join(t.TempDir(), "test.db")
+		db, err := sqlitestore.New(url, &sqlitestore.Options{
 			PoolSize:     4,
 			Table:        "testblobs",
 			Uncompressed: true,
@@ -26,7 +25,8 @@ func TestStore(t *testing.T) {
 	})
 
 	t.Run("Compressed", func(t *testing.T) {
-		db, err := sqlitestore.New(dbURL, &sqlitestore.Options{
+		url := "file:" + filepath.Join(t.TempDir(), "test.db")
+		db, err := sqlitestore.New(url, &sqlitestore.Options{
 			PoolSize:     4,
 			Table:        "packblobs",
 			Uncompressed: false,
