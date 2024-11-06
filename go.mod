@@ -11,7 +11,7 @@ require (
 )
 
 require (
-	github.com/creachadair/mds v0.21.3 // indirect
+	github.com/creachadair/mds v0.21.4 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
