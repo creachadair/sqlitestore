@@ -1,6 +1,6 @@
 // Copyright (C) 2020 Michael J. Fromberger. All Rights Reserved.
 
-// Package sqlitestore implements the blob.Store interface using SQLite3.
+// Package sqlitestore implements the [blob.KV] interface using SQLite3.
 package sqlitestore
 
 import (
@@ -26,7 +26,7 @@ import (
 // If poolsize=n is set, it is used to set the pool size.
 // If compress=v is set, it is used to enable/disable compression (default true).
 // Other query parameters are passed to SQLite.
-func Opener(_ context.Context, addr string) (blob.Store, error) {
+func Opener(_ context.Context, addr string) (blob.KV, error) {
 	var opts Options
 	if i := strings.Index(addr, "@"); i > 0 {
 		opts.Table, addr = addr[:i], addr[i+1:]
@@ -63,8 +63,8 @@ func Opener(_ context.Context, addr string) (blob.Store, error) {
 	return New(addr, &opts)
 }
 
-// A Store implements the blob.Store interface using a SQLite3 database.
-type Store struct {
+// A KV implements the [blob.KV] interface using a SQLite3 database.
+type KV struct {
 	txmu sync.RWMutex // ex: write db, sh: read db
 	db   *sql.DB
 
@@ -81,7 +81,7 @@ type Store struct {
 }
 
 // New creates or opens a store at the specified database.
-func New(uri string, opts *Options) (*Store, error) {
+func New(uri string, opts *Options) (*KV, error) {
 	db, err := sql.Open(opts.driverName(), uri)
 	if err != nil {
 		return nil, err
@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS %s (
 		return nil, fmt.Errorf("creating table: %w", err)
 	}
 
-	return &Store{
+	return &KV{
 		db:          db,
 		tableName:   tableName,
 		compress:    opts == nil || !opts.Uncompressed,
@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS %s (
 	}, nil
 }
 
-// Options are options for constructing a Store.  A nil *Options is ready for
+// Options are options for constructing a [KV].  A nil *Options is ready for
 // use and provides default values as described.
 type Options struct {
 	// The name of the SQL driver to use, default "sqlite".
@@ -162,22 +162,22 @@ func decodeKey(ekey []byte) string {
 	return string(ekey[:n])
 }
 
-func (s *Store) encodeBlob(data []byte) []byte {
+func (s *KV) encodeBlob(data []byte) []byte {
 	if s.compress {
 		return snappy.Encode(nil, data)
 	}
 	return data
 }
 
-func (s *Store) decodeBlob(data []byte) ([]byte, error) {
+func (s *KV) decodeBlob(data []byte) ([]byte, error) {
 	if s.compress {
 		return snappy.Decode(nil, data)
 	}
 	return data, nil
 }
 
-// Close implements blob.Closer.
-func (s *Store) Close(ctx context.Context) error {
+// Close implements part of [blob.KV].
+func (s *KV) Close(ctx context.Context) error {
 	s.txmu.Lock()
 	defer s.txmu.Unlock()
 
@@ -189,8 +189,8 @@ func (s *Store) Close(ctx context.Context) error {
 	return errors.Join(verr, cerr)
 }
 
-// Get implements part of blob.Store.
-func (s *Store) Get(ctx context.Context, key string) ([]byte, error) {
+// Get implements part of [blob.KV].
+func (s *KV) Get(ctx context.Context, key string) ([]byte, error) {
 	s.txmu.RLock()
 	defer s.txmu.RUnlock()
 	return withTxValue(ctx, s.db, func(tx *sql.Tx) ([]byte, error) {
@@ -205,8 +205,8 @@ func (s *Store) Get(ctx context.Context, key string) ([]byte, error) {
 	})
 }
 
-// Put implements part of blob.Store.
-func (s *Store) Put(ctx context.Context, opts blob.PutOptions) error {
+// Put implements part of [blob.KV].
+func (s *KV) Put(ctx context.Context, opts blob.PutOptions) error {
 	stmt := s.putStmtNRep
 	if opts.Replace {
 		stmt = s.putStmtRep
@@ -228,8 +228,8 @@ func (s *Store) Put(ctx context.Context, opts blob.PutOptions) error {
 	})
 }
 
-// Delete implements part of blob.Store.
-func (s *Store) Delete(ctx context.Context, key string) error {
+// Delete implements part of [blob.KV].
+func (s *KV) Delete(ctx context.Context, key string) error {
 	s.txmu.Lock()
 	defer s.txmu.Unlock()
 	return withTxErr(ctx, s.db, func(tx *sql.Tx) error {
@@ -243,8 +243,8 @@ func (s *Store) Delete(ctx context.Context, key string) error {
 	})
 }
 
-// List implements part of blob.Store.
-func (s *Store) List(ctx context.Context, start string, f func(string) error) error {
+// List implements part of [blob.KV].
+func (s *KV) List(ctx context.Context, start string, f func(string) error) error {
 	s.txmu.RLock()
 	defer s.txmu.RUnlock()
 	return withTxErr(ctx, s.db, func(tx *sql.Tx) error {
@@ -269,8 +269,8 @@ func (s *Store) List(ctx context.Context, start string, f func(string) error) er
 	})
 }
 
-// Len implements part of blob.Store.
-func (s *Store) Len(ctx context.Context) (int64, error) {
+// Len implements part of [blob.KV].
+func (s *KV) Len(ctx context.Context) (int64, error) {
 	s.txmu.RLock()
 	defer s.txmu.RUnlock()
 	return withTxValue(ctx, s.db, func(tx *sql.Tx) (int64, error) {
