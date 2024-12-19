@@ -16,6 +16,8 @@ import (
 	"sync"
 
 	"github.com/creachadair/ffs/blob"
+	"github.com/creachadair/ffs/storage/dbkey"
+	"github.com/creachadair/mds/value"
 	"github.com/golang/snappy"
 	"modernc.org/sqlite"
 )
@@ -26,11 +28,8 @@ import (
 // If poolsize=n is set, it is used to set the pool size.
 // If compress=v is set, it is used to enable/disable compression (default true).
 // Other query parameters are passed to SQLite.
-func Opener(_ context.Context, addr string) (blob.KV, error) {
+func Opener(_ context.Context, addr string) (blob.StoreCloser, error) {
 	var opts Options
-	if i := strings.Index(addr, "@"); i > 0 {
-		opts.Table, addr = addr[:i], addr[i+1:]
-	}
 
 	// Extract and remove query parameters specific to the store.
 	if i := strings.Index(addr, "?"); i > 0 {
@@ -63,55 +62,76 @@ func Opener(_ context.Context, addr string) (blob.KV, error) {
 	return New(addr, &opts)
 }
 
-// A KV implements the [blob.KV] interface using a SQLite3 database.
-type KV struct {
-	txmu sync.RWMutex // ex: write db, sh: read db
-	db   *sql.DB
+type Store struct {
+	*dbMonitor
+}
 
-	tableName string
+// Close implements part of the [blob.StoreCloser] interface.
+func (s Store) Close(ctx context.Context) error {
+	s.txmu.Lock()
+	defer s.txmu.Unlock()
+
+	// Attempt to vacuum the database before closing.
+	_, verr := s.db.Exec(`vacuum`)
+
+	// Even if that fails, however, make sure the pool gets cleaned up.
+	cerr := s.db.Close()
+	return errors.Join(verr, cerr)
+}
+
+type dbMonitor struct {
+	// These fields are read-only after initialization.
+	tableName dbkey.Prefix
 	compress  bool
 
-	// Pre-defined queries.
-	getStmt     string // params: key
-	putStmtRep  string // params: key, value; replace=true
-	putStmtNRep string // params: key, value; replace=false
-	deleteStmt  string // params: key
-	listStmt    string // params: start
-	lenStmt     string // no params
+	txmu sync.RWMutex // ex: write db, sh: read db
+	db   *sql.DB
+}
+
+func (d *dbMonitor) Keyspace(ctx context.Context, name string) (blob.KV, error) {
+	ktab := d.tableName.Keyspace(name).String() // hex-encoded
+
+	d.txmu.Lock()
+	defer d.txmu.Unlock()
+	if err := withTxErr(ctx, d.db, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, fmt.Sprintf(`create table if not exists "%s" (
+  key BLOB unique not null,
+  value BLOB not null
+)`, ktab))
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	return KV{db: d, tableName: ktab}, nil
+}
+
+func (d *dbMonitor) Sub(ctx context.Context, name string) (blob.Store, error) {
+	return Store{dbMonitor: &dbMonitor{
+		tableName: d.tableName.Sub(name),
+		compress:  d.compress,
+		db:        d.db,
+	}}, nil
+}
+
+// A KV implements the [blob.KV] interface using a SQLite3 database.
+type KV struct {
+	db        *dbMonitor
+	tableName string
 }
 
 // New creates or opens a store at the specified database.
-func New(uri string, opts *Options) (*KV, error) {
+func New(uri string, opts *Options) (Store, error) {
 	db, err := sql.Open(opts.driverName(), uri)
 	if err != nil {
-		return nil, err
+		return Store{}, err
 	}
 	if size := opts.poolSize(); size > 0 {
 		db.SetMaxOpenConns(size)
 	}
-
-	// Create the table, if necessary.
-	tableName := opts.tableName()
-	if _, err := db.Exec(fmt.Sprintf(`
-PRAGMA journal_mode = WAL;
-CREATE TABLE IF NOT EXISTS %s (
-   key BLOB UNIQUE NOT NULL,
-   value BLOB NOT NULL
-);`, tableName)); err != nil {
-		return nil, fmt.Errorf("creating table: %w", err)
-	}
-
-	return &KV{
-		db:          db,
-		tableName:   tableName,
-		compress:    opts == nil || !opts.Uncompressed,
-		getStmt:     fmt.Sprintf(`SELECT value FROM %s WHERE key = $key;`, tableName),
-		putStmtRep:  fmt.Sprintf(`REPLACE into %s (key, value) VALUES ($key, $value);`, tableName),
-		putStmtNRep: fmt.Sprintf(`INSERT into %s (key, value) VALUES ($key, $value);`, tableName),
-		deleteStmt:  fmt.Sprintf(`DELETE FROM %s WHERE key = $key;`, tableName),
-		listStmt:    fmt.Sprintf(`SELECT key FROM %s WHERE key >= $start ORDER BY key;`, tableName),
-		lenStmt:     fmt.Sprintf(`SELECT count(*) AS len FROM %s;`, tableName),
-	}, nil
+	return Store{dbMonitor: &dbMonitor{
+		db:       db,
+		compress: opts == nil || !opts.Uncompressed,
+	}}, nil
 }
 
 // Options are options for constructing a [KV].  A nil *Options is ready for
@@ -122,9 +142,6 @@ type Options struct {
 
 	// The number of connections to allow in the pool. If <= 0, use runtime.NumCPU.
 	PoolSize int
-
-	// The name of the table to use for blob data.  If unset, use "blobs".
-	Table string
 
 	// If true, store blobs without compression; by default blob data are
 	// compressed with Snappy.
@@ -145,13 +162,6 @@ func (o *Options) poolSize() int {
 	return o.PoolSize
 }
 
-func (o *Options) tableName() string {
-	if o == nil || o.Table == "" {
-		return "blobs"
-	}
-	return o.Table
-}
-
 func encodeKey(key string) string { return hex.EncodeToString([]byte(key)) }
 
 func decodeKey(ekey []byte) string {
@@ -162,39 +172,28 @@ func decodeKey(ekey []byte) string {
 	return string(ekey[:n])
 }
 
-func (s *KV) encodeBlob(data []byte) []byte {
-	if s.compress {
+func (s KV) encodeBlob(data []byte) []byte {
+	if s.db.compress {
 		return snappy.Encode(nil, data)
 	}
 	return data
 }
 
 func (s *KV) decodeBlob(data []byte) ([]byte, error) {
-	if s.compress {
+	if s.db.compress {
 		return snappy.Decode(nil, data)
 	}
 	return data, nil
 }
 
-// Close implements part of [blob.KV].
-func (s *KV) Close(ctx context.Context) error {
-	s.txmu.Lock()
-	defer s.txmu.Unlock()
-
-	// Attempt to clean up the WAL before closing.
-	_, verr := s.db.Exec(`VACUUM; PRAGMA wal_checkpoint(TRUNCATE);`)
-
-	// Even if that fails, however, make sure the pool gets cleaned up.
-	cerr := s.db.Close()
-	return errors.Join(verr, cerr)
-}
-
 // Get implements part of [blob.KV].
-func (s *KV) Get(ctx context.Context, key string) ([]byte, error) {
-	s.txmu.RLock()
-	defer s.txmu.RUnlock()
-	return withTxValue(ctx, s.db, func(tx *sql.Tx) ([]byte, error) {
-		row := tx.QueryRowContext(ctx, s.getStmt, sql.Named("key", encodeKey(key)))
+func (s KV) Get(ctx context.Context, key string) ([]byte, error) {
+	s.db.txmu.RLock()
+	defer s.db.txmu.RUnlock()
+
+	query := fmt.Sprintf(`select value from "%s" where key = $key`, s.tableName)
+	return withTxValue(ctx, s.db.db, func(tx *sql.Tx) ([]byte, error) {
+		row := tx.QueryRowContext(ctx, query, sql.Named("key", encodeKey(key)))
 		var data []byte
 		if err := row.Scan(&data); errors.Is(err, sql.ErrNoRows) {
 			return nil, blob.KeyNotFound(key)
@@ -206,20 +205,20 @@ func (s *KV) Get(ctx context.Context, key string) ([]byte, error) {
 }
 
 // Put implements part of [blob.KV].
-func (s *KV) Put(ctx context.Context, opts blob.PutOptions) error {
-	stmt := s.putStmtNRep
-	if opts.Replace {
-		stmt = s.putStmtRep
-	}
-	s.txmu.Lock()
-	defer s.txmu.Unlock()
-	return withTxErr(ctx, s.db, func(tx *sql.Tx) error {
+func (s KV) Put(ctx context.Context, opts blob.PutOptions) error {
+	s.db.txmu.Lock()
+	defer s.db.txmu.Unlock()
+
+	op := value.Cond(opts.Replace, "replace", "insert")
+	stmt := fmt.Sprintf(`%s into "%s" (key, value) values ($key, $value)`, op, s.tableName)
+	return withTxErr(ctx, s.db.db, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, stmt,
 			sql.Named("key", encodeKey(opts.Key)),
 			sql.Named("value", s.encodeBlob(opts.Data)),
 		)
 		const sqliteConstraintUnique = 2067
-		if serr, ok := err.(*sqlite.Error); ok && serr.Code() == sqliteConstraintUnique {
+		var serr *sqlite.Error
+		if errors.As(err, &serr) && serr.Code() == sqliteConstraintUnique {
 			return blob.KeyExists(opts.Key)
 		} else if err != nil {
 			return fmt.Errorf("put: %w", err)
@@ -229,11 +228,13 @@ func (s *KV) Put(ctx context.Context, opts blob.PutOptions) error {
 }
 
 // Delete implements part of [blob.KV].
-func (s *KV) Delete(ctx context.Context, key string) error {
-	s.txmu.Lock()
-	defer s.txmu.Unlock()
-	return withTxErr(ctx, s.db, func(tx *sql.Tx) error {
-		rsp, err := tx.ExecContext(ctx, s.deleteStmt, sql.Named("key", encodeKey(key)))
+func (s KV) Delete(ctx context.Context, key string) error {
+	s.db.txmu.Lock()
+	defer s.db.txmu.Unlock()
+
+	stmt := fmt.Sprintf(`delete from "%s" where key = $key`, s.tableName)
+	return withTxErr(ctx, s.db.db, func(tx *sql.Tx) error {
+		rsp, err := tx.ExecContext(ctx, stmt, sql.Named("key", encodeKey(key)))
 		if err != nil {
 			return fmt.Errorf("delete: %w", err)
 		} else if nr, _ := rsp.RowsAffected(); nr == 0 {
@@ -244,11 +245,13 @@ func (s *KV) Delete(ctx context.Context, key string) error {
 }
 
 // List implements part of [blob.KV].
-func (s *KV) List(ctx context.Context, start string, f func(string) error) error {
-	s.txmu.RLock()
-	defer s.txmu.RUnlock()
-	return withTxErr(ctx, s.db, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, s.listStmt, sql.Named("start", encodeKey(start)))
+func (s KV) List(ctx context.Context, start string, f func(string) error) error {
+	s.db.txmu.RLock()
+	defer s.db.txmu.RUnlock()
+
+	query := fmt.Sprintf(`select key from "%s" where key >= $start order by key`, s.tableName)
+	return withTxErr(ctx, s.db.db, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, query, sql.Named("start", encodeKey(start)))
 		if err != nil {
 			return fmt.Errorf("list: %w", err)
 		}
@@ -270,11 +273,13 @@ func (s *KV) List(ctx context.Context, start string, f func(string) error) error
 }
 
 // Len implements part of [blob.KV].
-func (s *KV) Len(ctx context.Context) (int64, error) {
-	s.txmu.RLock()
-	defer s.txmu.RUnlock()
-	return withTxValue(ctx, s.db, func(tx *sql.Tx) (int64, error) {
-		row := tx.QueryRowContext(ctx, s.lenStmt)
+func (s KV) Len(ctx context.Context) (int64, error) {
+	s.db.txmu.RLock()
+	defer s.db.txmu.RUnlock()
+
+	query := fmt.Sprintf(`select count(*) from "%s"`, s.tableName)
+	return withTxValue(ctx, s.db.db, func(tx *sql.Tx) (int64, error) {
+		row := tx.QueryRowContext(ctx, query)
 		var nr int64
 		if err := row.Scan(&nr); err != nil {
 			return 0, err

@@ -15,7 +15,6 @@ func TestStore(t *testing.T) {
 		url := "file:" + filepath.Join(t.TempDir(), "test.db")
 		db, err := sqlitestore.New(url, &sqlitestore.Options{
 			PoolSize:     4,
-			Table:        "testblobs",
 			Uncompressed: true,
 		})
 		if err != nil {
@@ -28,7 +27,6 @@ func TestStore(t *testing.T) {
 		url := "file:" + filepath.Join(t.TempDir(), "test.db")
 		db, err := sqlitestore.New(url, &sqlitestore.Options{
 			PoolSize:     4,
-			Table:        "packblobs",
 			Uncompressed: false,
 		})
 		if err != nil {
