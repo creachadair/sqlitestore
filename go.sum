@@ -1,5 +1,5 @@
-github.com/creachadair/ffs v0.7.2-0.20241219024034-3415e47146fc h1:bAwOevJYVNdNk5DUd/RFurRNH1bFHTzRs/ZU6BMb+qw=
-github.com/creachadair/ffs v0.7.2-0.20241219024034-3415e47146fc/go.mod h1:PD7OPVlVGEvwg8kAoR8LsqsOFmjo8EERNOEJgtzC4x4=
+github.com/creachadair/ffs v0.8.0 h1:0iHQ6ykM7+3eDdjPoojhTRUPGfe4pecKiqIMLsUIPKQ=
+github.com/creachadair/ffs v0.8.0/go.mod h1:PD7OPVlVGEvwg8kAoR8LsqsOFmjo8EERNOEJgtzC4x4=
 github.com/creachadair/mds v0.22.0 h1:IRm4fWRKF9Pi4k3DEfgdlhMMYVxyef9FFall4r0GP4A=
 github.com/creachadair/mds v0.22.0/go.mod h1:ArfS0vPHoLV/SzuIzoqTEZfoYmac7n9Cj8XPANHocvw=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=

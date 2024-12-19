@@ -5,13 +5,13 @@ go 1.23
 toolchain go1.23.1
 
 require (
-	github.com/creachadair/ffs v0.7.2-0.20241219024034-3415e47146fc
+	github.com/creachadair/ffs v0.8.0
+	github.com/creachadair/mds v0.22.0
 	github.com/golang/snappy v0.0.4
 	modernc.org/sqlite v1.34.2
 )
 
 require (
-	github.com/creachadair/mds v0.22.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
