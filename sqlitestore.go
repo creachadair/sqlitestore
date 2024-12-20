@@ -88,7 +88,7 @@ type dbMonitor struct {
 	db   *sql.DB
 }
 
-func (d *dbMonitor) Keyspace(ctx context.Context, name string) (blob.KV, error) {
+func (d *dbMonitor) KV(ctx context.Context, name string) (blob.KV, error) {
 	ktab := d.tableName.Keyspace(name).String() // hex-encoded
 
 	d.txmu.Lock()
@@ -103,6 +103,14 @@ func (d *dbMonitor) Keyspace(ctx context.Context, name string) (blob.KV, error) 
 		return nil, err
 	}
 	return KV{db: d, tableName: ktab}, nil
+}
+
+func (d *dbMonitor) CAS(ctx context.Context, name string) (blob.CAS, error) {
+	kv, err := d.KV(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	return blob.CASFromKV(kv), nil
 }
 
 func (d *dbMonitor) Sub(ctx context.Context, name string) (blob.Store, error) {
