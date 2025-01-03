@@ -96,7 +96,8 @@ func (d *dbMonitor) KV(ctx context.Context, name string) (blob.KV, error) {
 	if err := withTxErr(ctx, d.db, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, fmt.Sprintf(`create table if not exists "%s" (
   key BLOB unique not null,
-  value BLOB not null
+  value BLOB not null,
+  vsize INTEGER not null
 )`, ktab))
 		return err
 	}); err != nil {
@@ -212,17 +213,40 @@ func (s KV) Get(ctx context.Context, key string) ([]byte, error) {
 	})
 }
 
+// Stat implements part of [blob.KV].
+func (s KV) Stat(ctx context.Context, keys ...string) (blob.StatMap, error) {
+	s.db.txmu.RLock()
+	defer s.db.txmu.RUnlock()
+
+	query := fmt.Sprintf(`select vsize from "%s" where key = $key`, s.tableName)
+	return withTxValue(ctx, s.db.db, func(tx *sql.Tx) (blob.StatMap, error) {
+		out := make(blob.StatMap)
+		for _, key := range keys {
+			row := tx.QueryRowContext(ctx, query, sql.Named("key", encodeKey(key)))
+			var size int64
+			if err := row.Scan(&size); errors.Is(err, sql.ErrNoRows) {
+				continue
+			} else if err != nil {
+				return nil, fmt.Errorf("stat: %w", err)
+			}
+			out[key] = blob.Stat{Size: size}
+		}
+		return out, nil
+	})
+}
+
 // Put implements part of [blob.KV].
 func (s KV) Put(ctx context.Context, opts blob.PutOptions) error {
 	s.db.txmu.Lock()
 	defer s.db.txmu.Unlock()
 
 	op := value.Cond(opts.Replace, "replace", "insert")
-	stmt := fmt.Sprintf(`%s into "%s" (key, value) values ($key, $value)`, op, s.tableName)
+	stmt := fmt.Sprintf(`%s into "%s" (key, value, vsize) values ($key, $value, $vsize)`, op, s.tableName)
 	return withTxErr(ctx, s.db.db, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, stmt,
 			sql.Named("key", encodeKey(opts.Key)),
 			sql.Named("value", s.encodeBlob(opts.Data)),
+			sql.Named("vsize", len(opts.Data)),
 		)
 		const sqliteConstraintUnique = 2067
 		var serr *sqlite.Error
