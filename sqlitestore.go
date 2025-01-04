@@ -213,14 +213,14 @@ func (s KV) Get(ctx context.Context, key string) ([]byte, error) {
 	})
 }
 
-// Stat implements part of [blob.KV].
-func (s KV) Stat(ctx context.Context, keys ...string) (blob.StatMap, error) {
+// Has implements part of [blob.KV].
+func (s KV) Has(ctx context.Context, keys ...string) (blob.KeySet, error) {
 	s.db.txmu.RLock()
 	defer s.db.txmu.RUnlock()
 
 	query := fmt.Sprintf(`select vsize from "%s" where key = $key`, s.tableName)
-	return withTxValue(ctx, s.db.db, func(tx *sql.Tx) (blob.StatMap, error) {
-		out := make(blob.StatMap)
+	return withTxValue(ctx, s.db.db, func(tx *sql.Tx) (blob.KeySet, error) {
+		var out blob.KeySet
 		for _, key := range keys {
 			row := tx.QueryRowContext(ctx, query, sql.Named("key", encodeKey(key)))
 			var size int64
@@ -229,7 +229,7 @@ func (s KV) Stat(ctx context.Context, keys ...string) (blob.StatMap, error) {
 			} else if err != nil {
 				return nil, fmt.Errorf("stat: %w", err)
 			}
-			out[key] = blob.Stat{Size: size}
+			out.Add(key)
 		}
 		return out, nil
 	})
