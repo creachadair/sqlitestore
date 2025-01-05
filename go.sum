@@ -1,7 +1,7 @@
-github.com/creachadair/ffs v0.12.0 h1:ytIB9CoKWoaUYqj/Zz8jixXr5gNR5M8a0Hh+6SUhvMg=
-github.com/creachadair/ffs v0.12.0/go.mod h1:hXJBHPM4I+fCOQUBnUXyAgXx5mGRQvBW7hcFLdmfkVk=
-github.com/creachadair/mds v0.22.1 h1:Wink9jeYR7brBbOkOTVZVrd6vyb5W4ZBRhlZd96TSgU=
-github.com/creachadair/mds v0.22.1/go.mod h1:ArfS0vPHoLV/SzuIzoqTEZfoYmac7n9Cj8XPANHocvw=
+github.com/creachadair/ffs v0.12.2 h1:HpdsbZyozEkIomXzW79DlotapGAyciIh1nxFt8qOWZk=
+github.com/creachadair/ffs v0.12.2/go.mod h1:wPE85nbgSxvMwAEidnyHjMtBE0c5c0K/2O/tDe4pPZA=
+github.com/creachadair/mds v0.22.3 h1:IXTo8andviQhM8tRqfSirmjGu+HGX1BeVigr0qX4iSQ=
+github.com/creachadair/mds v0.22.3/go.mod h1:ArfS0vPHoLV/SzuIzoqTEZfoYmac7n9Cj8XPANHocvw=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
 github.com/golang/snappy v0.0.4 h1:yAGX7huGHXlcLOEtBnF4w7FQwA26wojNCwOYAEhLjQM=

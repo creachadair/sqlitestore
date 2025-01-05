@@ -5,8 +5,8 @@ go 1.23
 toolchain go1.23.1
 
 require (
-	github.com/creachadair/ffs v0.12.0
-	github.com/creachadair/mds v0.22.1
+	github.com/creachadair/ffs v0.12.2
+	github.com/creachadair/mds v0.22.3
 	github.com/golang/snappy v0.0.4
 	modernc.org/sqlite v1.34.4
 )
