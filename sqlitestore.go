@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"iter"
 	"net/url"
 	"runtime"
 	"strconv"
@@ -277,31 +278,33 @@ func (s KV) Delete(ctx context.Context, key string) error {
 }
 
 // List implements part of [blob.KV].
-func (s KV) List(ctx context.Context, start string, f func(string) error) error {
-	s.db.txmu.RLock()
-	defer s.db.txmu.RUnlock()
+func (s KV) List(ctx context.Context, start string) iter.Seq2[string, error] {
+	return func(yield func(string, error) bool) {
+		s.db.txmu.RLock()
+		defer s.db.txmu.RUnlock()
 
-	query := fmt.Sprintf(`select key from "%s" where key >= $start order by key`, s.tableName)
-	return withTxErr(ctx, s.db.db, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, query, sql.Named("start", encodeKey(start)))
-		if err != nil {
-			return fmt.Errorf("list: %w", err)
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var key []byte
-			if err := rows.Scan(&key); err != nil {
+		query := fmt.Sprintf(`select key from "%s" where key >= $start order by key`, s.tableName)
+		if err := withTxErr(ctx, s.db.db, func(tx *sql.Tx) error {
+			rows, err := tx.QueryContext(ctx, query, sql.Named("start", encodeKey(start)))
+			if err != nil {
 				return fmt.Errorf("list: %w", err)
 			}
-			skey := decodeKey(key)
-			if err := f(skey); errors.Is(err, blob.ErrStopListing) {
-				break
-			} else if err != nil {
-				return err
+			defer rows.Close()
+			for rows.Next() {
+				var key []byte
+				if err := rows.Scan(&key); err != nil {
+					return fmt.Errorf("list: %w", err)
+				}
+				skey := decodeKey(key)
+				if !yield(skey, nil) {
+					return nil // all done
+				}
 			}
+			return rows.Close()
+		}); err != nil {
+			yield("", err)
 		}
-		return rows.Close()
-	})
+	}
 }
 
 // Len implements part of [blob.KV].
