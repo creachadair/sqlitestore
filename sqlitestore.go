@@ -96,10 +96,10 @@ func (d *dbMonitor) KV(ctx context.Context, name string) (blob.KV, error) {
 	defer d.txmu.Unlock()
 	if err := withTxErr(ctx, d.db, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, fmt.Sprintf(`create table if not exists "%s" (
-  key BLOB unique not null,
+  key BLOB primary key,
   value BLOB not null,
   vsize INTEGER not null
-)`, ktab))
+) without rowid`, ktab))
 		return err
 	}); err != nil {
 		return nil, err
@@ -249,7 +249,7 @@ func (s KV) Put(ctx context.Context, opts blob.PutOptions) error {
 			sql.Named("value", s.encodeBlob(opts.Data)),
 			sql.Named("vsize", len(opts.Data)),
 		)
-		const sqliteConstraintUnique = 2067
+		const sqliteConstraintUnique = 1555
 		var serr *sqlite.Error
 		if errors.As(err, &serr) && serr.Code() == sqliteConstraintUnique {
 			return blob.KeyExists(opts.Key)
