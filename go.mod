@@ -6,7 +6,7 @@ toolchain go1.24.0
 
 require (
 	github.com/creachadair/ffs v0.13.14
-	github.com/creachadair/mds v0.24.0
+	github.com/creachadair/mds v0.24.1
 	github.com/golang/snappy v1.0.0
 	modernc.org/sqlite v1.36.0
 )
