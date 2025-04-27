@@ -2,8 +2,6 @@ module github.com/creachadair/sqlitestore
 
 go 1.24
 
-toolchain go1.24.1
-
 require (
 	github.com/creachadair/ffs v0.13.16
 	github.com/creachadair/mds v0.24.2
