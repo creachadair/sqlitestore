@@ -108,11 +108,7 @@ func (d *dbMonitor) KV(ctx context.Context, name string) (blob.KV, error) {
 }
 
 func (d *dbMonitor) CAS(ctx context.Context, name string) (blob.CAS, error) {
-	kv, err := d.KV(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-	return blob.CASFromKV(kv), nil
+	return blob.CASFromKVError(d.KV(ctx, name))
 }
 
 func (d *dbMonitor) Sub(ctx context.Context, name string) (blob.Store, error) {
