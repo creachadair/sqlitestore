@@ -18,6 +18,7 @@ import (
 
 	"github.com/creachadair/ffs/blob"
 	"github.com/creachadair/ffs/storage/dbkey"
+	"github.com/creachadair/ffs/storage/monitor"
 	"github.com/creachadair/mds/value"
 	"github.com/golang/snappy"
 	"modernc.org/sqlite"
@@ -64,64 +65,33 @@ func Opener(_ context.Context, addr string) (blob.StoreCloser, error) {
 }
 
 type Store struct {
-	*dbMonitor
+	*monitor.M[*sqlDB, KV]
 }
 
 // Close implements part of the [blob.StoreCloser] interface.
 func (s Store) Close(ctx context.Context) error {
-	s.txmu.Lock()
-	defer s.txmu.Unlock()
+	s.DB.txmu.Lock()
+	defer s.DB.txmu.Unlock()
 
 	// Attempt to vacuum the database before closing.
-	_, verr := s.db.Exec(`vacuum`)
+	_, verr := s.DB.db.Exec(`vacuum`)
 
 	// Even if that fails, however, make sure the pool gets cleaned up.
-	cerr := s.db.Close()
+	cerr := s.DB.db.Close()
 	return errors.Join(verr, cerr)
 }
 
-type dbMonitor struct {
+type sqlDB struct {
 	// These fields are read-only after initialization.
-	tableName dbkey.Prefix
-	compress  bool
+	compress bool
 
 	txmu sync.RWMutex // ex: write db, sh: read db
 	db   *sql.DB
 }
 
-func (d *dbMonitor) KV(ctx context.Context, name string) (blob.KV, error) {
-	ktab := d.tableName.Keyspace(name).String() // hex-encoded
-
-	d.txmu.Lock()
-	defer d.txmu.Unlock()
-	if err := withTxErr(ctx, d.db, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, fmt.Sprintf(`create table if not exists "%s" (
-  key BLOB primary key,
-  value BLOB not null,
-  vsize INTEGER not null
-) without rowid`, ktab))
-		return err
-	}); err != nil {
-		return nil, err
-	}
-	return KV{db: d, tableName: ktab}, nil
-}
-
-func (d *dbMonitor) CAS(ctx context.Context, name string) (blob.CAS, error) {
-	return blob.CASFromKVError(d.KV(ctx, name))
-}
-
-func (d *dbMonitor) Sub(ctx context.Context, name string) (blob.Store, error) {
-	return Store{dbMonitor: &dbMonitor{
-		tableName: d.tableName.Sub(name),
-		compress:  d.compress,
-		db:        d.db,
-	}}, nil
-}
-
 // A KV implements the [blob.KV] interface using a SQLite3 database.
 type KV struct {
-	db        *dbMonitor
+	db        *sqlDB
 	tableName string
 }
 
@@ -134,10 +104,26 @@ func New(uri string, opts *Options) (Store, error) {
 	if size := opts.poolSize(); size > 0 {
 		db.SetMaxOpenConns(size)
 	}
-	return Store{dbMonitor: &dbMonitor{
-		db:       db,
-		compress: opts == nil || !opts.Uncompressed,
-	}}, nil
+	return Store{M: monitor.New(monitor.Config[*sqlDB, KV]{
+		DB: &sqlDB{db: db, compress: opts == nil || !opts.Uncompressed},
+		NewKV: func(ctx context.Context, db *sqlDB, pfx dbkey.Prefix, _ string) (KV, error) {
+			ktab := pfx.String() // hex-encoded
+
+			db.txmu.Lock()
+			defer db.txmu.Unlock()
+			if err := withTxErr(ctx, db.db, func(tx *sql.Tx) error {
+				_, err := tx.ExecContext(ctx, fmt.Sprintf(`create table if not exists "%s" (
+  key BLOB primary key,
+  value BLOB not null,
+  vsize INTEGER not null
+) without rowid`, ktab))
+				return err
+			}); err != nil {
+				return KV{}, err
+			}
+			return KV{db: db, tableName: ktab}, nil
+		},
+	})}, nil
 }
 
 // Options are options for constructing a [KV].  A nil *Options is ready for
