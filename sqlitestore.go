@@ -79,12 +79,15 @@ func (s Store) Close(ctx context.Context) error {
 	s.DB.txmu.Lock()
 	defer s.DB.txmu.Unlock()
 
+	// Attempt to truncate the WAL before closing.
+	_, terr := s.DB.db.Exec(`pragma wal_checkpoint(TRUNCATE)`)
+
 	// Attempt to vacuum the database before closing.
 	_, verr := s.DB.db.Exec(`vacuum`)
 
 	// Even if that fails, however, make sure the pool gets cleaned up.
 	cerr := s.DB.db.Close()
-	return errors.Join(verr, cerr)
+	return errors.Join(terr, verr, cerr)
 }
 
 type sqlDB struct {
