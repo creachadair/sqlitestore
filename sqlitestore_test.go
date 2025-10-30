@@ -34,4 +34,15 @@ func TestStore(t *testing.T) {
 		}
 		storetest.Run(t, db)
 	})
+
+	t.Run("WAL", func(t *testing.T) {
+		url := "file:" + filepath.Join(t.TempDir(), "test.db")
+		db, err := sqlitestore.New(url, &sqlitestore.Options{
+			JournalMode: "wal",
+		})
+		if err != nil {
+			t.Fatalf("New failed; %v", err)
+		}
+		storetest.Run(t, db)
+	})
 }

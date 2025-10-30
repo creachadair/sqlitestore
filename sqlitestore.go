@@ -25,11 +25,13 @@ import (
 )
 
 // Opener constructs a sqlitestore from a SQLite URI, for use with the store
-// package. To specify the table name, prefix addr with "tablename@".
+// package.
 //
-// If poolsize=n is set, it is used to set the pool size.
-// If compress=v is set, it is used to enable/disable compression (default true).
-// Other query parameters are passed to SQLite.
+//   - If poolsize=n is set, it is used to set the pool size to n connections.
+//   - If compress=v is set, it is used to enable/disable compression (default true).
+//   - If journal=m is set, it is used to set the journaling mode.
+//
+// Any other query parameters are passed to SQLite verbatim.
 func Opener(_ context.Context, addr string) (blob.StoreCloser, error) {
 	var opts Options
 
@@ -54,6 +56,10 @@ func Opener(_ context.Context, addr string) (blob.StoreCloser, error) {
 			}
 			opts.Uncompressed = !v
 			delete(q, "compress")
+		}
+		if mode := q.Get("journal"); mode != "" {
+			opts.JournalMode = q.Get("journal")
+			delete(q, "journal")
 		}
 		addr = base
 		if r := q.Encode(); r != "" {
@@ -104,6 +110,15 @@ func New(uri string, opts *Options) (Store, error) {
 	if size := opts.poolSize(); size > 0 {
 		db.SetMaxOpenConns(size)
 	}
+	if mode := opts.journalMode(); mode != "" {
+		r := db.QueryRow("pragma journal_mode=" + mode)
+		var gotMode string
+		if err := r.Scan(&gotMode); err != nil {
+			return Store{}, fmt.Errorf("set journal mode: %w", err)
+		} else if gotMode != mode {
+			return Store{}, fmt.Errorf("invalid journal mode %q", mode)
+		}
+	}
 	return Store{M: monitor.New(monitor.Config[*sqlDB, KV]{
 		DB: &sqlDB{db: db, compress: opts == nil || !opts.Uncompressed},
 		NewKV: func(ctx context.Context, db *sqlDB, pfx dbkey.Prefix, _ string) (KV, error) {
@@ -138,6 +153,10 @@ type Options struct {
 	// If true, store blobs without compression; by default blob data are
 	// compressed with Snappy.
 	Uncompressed bool
+
+	// If set, set the journal mode of the database to this value.
+	// See: https://sqlite.org/pragma.html#pragma_journal_mode
+	JournalMode string
 }
 
 func (o *Options) driverName() string {
@@ -152,6 +171,13 @@ func (o *Options) poolSize() int {
 		return runtime.NumCPU()
 	}
 	return o.PoolSize
+}
+
+func (o *Options) journalMode() string {
+	if o == nil {
+		return ""
+	}
+	return o.JournalMode
 }
 
 func encodeKey(key string) string { return hex.EncodeToString([]byte(key)) }
