@@ -3,10 +3,10 @@ module github.com/creachadair/sqlitestore
 go 1.25.0
 
 require (
-	github.com/creachadair/ffs v0.17.6
-	github.com/creachadair/mds v0.26.1
+	github.com/creachadair/ffs v0.17.7
+	github.com/creachadair/mds v0.26.2
 	github.com/golang/snappy v1.0.0
-	modernc.org/sqlite v1.47.0
+	modernc.org/sqlite v1.48.1
 )
 
 require (
