@@ -4,9 +4,9 @@ go 1.25.0
 
 require (
 	github.com/creachadair/ffs v0.17.9
-	github.com/creachadair/mds v0.27.1
+	github.com/creachadair/mds v0.28.0
 	github.com/golang/snappy v1.0.0
-	modernc.org/sqlite v1.49.1
+	modernc.org/sqlite v1.50.0
 )
 
 require (
