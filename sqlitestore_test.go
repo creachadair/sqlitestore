@@ -46,3 +46,16 @@ func TestStore(t *testing.T) {
 		storetest.Run(t, db)
 	})
 }
+
+func BenchmarkStore(b *testing.B) {
+	url := "file:" + filepath.Join(b.TempDir(), "benchmark.db")
+	db, err := sqlitestore.New(url, nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+	kv, err := db.KV(b.Context(), "benchmark")
+	if err != nil {
+		b.Fatalf("KV: %v", err)
+	}
+	storetest.BenchmarkKV(b, kv)
+}
